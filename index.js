@@ -1,61 +1,75 @@
-import { Telegraf } from "telegraf"
-import axios from "axios"
-import config from "./config.js"
+import { Telegraf, Markup } from "telegraf";
+import fs from "fs-extra";
+import config from "./config.js";
 
-const bot = new Telegraf(config.BOT_TOKEN)
+const bot = new Telegraf(config.BOT_TOKEN);
+const JSON_FILE = "./keys.json";
+const TXT_FILE = "./keys.txt";
 
-function generateKey(){
-const chars="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-
-function part(){
-let s=""
-for(let i=0;i<4;i++){
-s+=chars[Math.floor(Math.random()*chars.length)]
-}
-return s
+// Load keys
+let keys = [];
+if (fs.existsSync(JSON_FILE)) {
+  keys = fs.readJSONSync(JSON_FILE);
 }
 
-return `${config.KEY_PREFIX}-${part()}-${part()}`
+// Generate key sesuai format Python
+function generateKey() {
+  const part = () => {
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let str = "";
+    for (let i = 0; i < 4; i++) {
+      str += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return str;
+  };
+  return `${config.KEY_PREFIX}-${part()}-${part()}-${part()}`;
 }
 
-async function addKeyGithub(key){
-
-const url=`https://api.github.com/repos/${config.GITHUB_USER}/${config.GITHUB_REPO}/contents/keys.txt`
-
-const res=await axios.get(url,{
-headers:{Authorization:`token ${config.GITHUB_TOKEN}`}
-})
-
-const file=Buffer.from(res.data.content,"base64").toString()
-
-const updated=file+"\n"+key
-
-await axios.put(url,{
-message:"add key",
-content:Buffer.from(updated).toString("base64"),
-sha:res.data.sha
-},{
-headers:{Authorization:`token ${config.GITHUB_TOKEN}`}
-})
-
+// Save key ke JSON & TXT
+function saveKey(key) {
+  keys.push({ key, created_at: new Date().toISOString() });
+  fs.writeJSONSync(JSON_FILE, keys, { spaces: 2 });
+  fs.appendFileSync(TXT_FILE, key + "\n");
 }
 
-bot.start(ctx=>{
-ctx.reply("Bot Key Generator Aktif")
-})
+// Start
+bot.start((ctx) => {
+  ctx.replyWithPhoto(config.START_PHOTO, {
+    caption: `👋 Halo ${ctx.from.first_name}!\n\nDeveloper: @dho_strr\nSupport : @anzzcuki`,
+    ...Markup.inlineKeyboard([
+      [Markup.button.callback("🔑 Generate 1 Key", "GEN_1")],
+      [Markup.button.callback("🔑 Generate 5 Key", "GEN_5")],
+      [Markup.button.callback("📄 List Key", "LIST")],
+      [Markup.button.callback("ℹ️ Info Developer/Support", "INFO")]
+    ])
+  });
+});
 
-bot.command("createkey",async(ctx)=>{
+// Button actions
+bot.action(/GEN_(\d+)/, (ctx) => {
+  const amount = parseInt(ctx.match[1]);
+  const newKeys = [];
+  for (let i = 0; i < amount; i++) {
+    const k = generateKey();
+    saveKey(k);
+    newKeys.push(k);
+  }
+  ctx.answerCbQuery();
+  ctx.reply(`✅ Generated ${newKeys.length} key(s):\n${newKeys.join("\n")}\n\nDeveloper: @dho_strr\nSupport: @anzzcuki`);
+});
 
-if(ctx.from.id!=config.OWNER_ID)
-return ctx.reply("Bukan owner")
+bot.action("LIST", (ctx) => {
+  ctx.answerCbQuery();
+  if (!keys.length) return ctx.reply("❌ Belum ada key tersimpan.");
+  const listKeys = keys.map((k, i) => `${i + 1}. ${k.key}`).join("\n");
+  ctx.reply(`📄 List Key:\n${listKeys}\n\nDeveloper: @dho_strr\nSupport: @anzzcuki`);
+});
 
-const key=generateKey()
+bot.action("INFO", (ctx) => {
+  ctx.answerCbQuery();
+  ctx.reply(`ℹ️ Developer: @dho_strr\nℹ️ Support: @anzzcuki\nGunakan tombol 🔑 untuk generate key baru atau 📄 untuk lihat key.`);
+});
 
-await addKeyGithub(key)
-
-ctx.reply(`Key berhasil dibuat:\n\n${key}`)
-})
-
-bot.launch()
-
-console.log("Bot running")
+// Launch bot
+bot.launch();
+console.log("🤖 Key Generator Bot running with full button + Python compatible key format...");
